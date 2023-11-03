@@ -1,5 +1,14 @@
 close all
 
+%Updated Script which now runs on a folder of images and develops radius
+%calculations for all of the droplets in those folders and presents a
+%histogram of all the radi, it also saves images showing the circles it has
+%found in the CircleCheck Folder, the raw data it uses to create the
+%histogram is seperated by image in teh RawData folder, and is concatenated
+%in the AllRawData file, Individual histograms for each image are included
+%in the individual histogram folder
+%Alex
+
 
 %This script was written for the use of droplet & circle identification
 %feel free to use it as needed, if you do have questions though, MATLAB
@@ -9,20 +18,21 @@ close all
 %SCLP
 
 %%
-SRadius = 41;   % The minimum droplet/microsphere radius (in pixels) the script will seek out (and recognize)
-LRadius = 46;   % The maximum droplet/microsphere radius (in pixels) the script will seek out (and recognize)
+SRadius = 25;   % The minimum droplet/microsphere radius (in pixels) the script will seek out (and recognize)
+LRadius = 35;   % The maximum droplet/microsphere radius (in pixels) the script will seek out (and recognize)
 %Generally you want to know relative pixel size, if your radius range is
 %too big accuracy for the script goes down. However, if you do not know the
 %approximate pixel size, try a run from 10 to 1000 and identify approximate
 %size and then update accordingly
 % 
+Counts = [];%array which keeps track of # of beads for later use
 
-SensitivityFactor = 0.988;   % The sensitivity of the circle-hunting command.  Lower values will 
+SensitivityFactor = 0.98;   % The sensitivity of the circle-hunting command.  Lower values will 
                             % lead the script to be more selective, while higher values will 
                             % lead to it being less selective.
 
 
-ImgsToAnalyze = '20230913TestFolder'; %Replace with the name of the folder with the gel trail photos to be analyzed
+ImgsToAnalyze = '20231003_DropletGen_DP'; %Replace with the name of the folder with the gel trail photos to be analyzed
 
 FolderInfo = dir(ImgsToAnalyze);
 RawDataFolder = append(ImgsToAnalyze,'RawData');
@@ -43,10 +53,16 @@ for c = 3:length(FolderInfo) %loop portion
 stripFileExtention = FolderInfo(c).name(1:end-4); %creates a file name without the extension to be used late
 % to save respective files
 
-%disp(append(ImgsToAnalyze,'/',FolderInfo(c).name))
+
 
 RawImage = imread(append(ImgsToAnalyze,'/',FolderInfo(c).name));  % Change value to the filename you want to analyze, also if not in the same folder index appropriately
 % this will require you to write out the path directory to the specific subfolder and file
+
+%will crop image if extra on top/bottom
+[height,width] = size(RawImage);
+xcrop=0;
+ycrop=30;
+RawImage = imcrop(RawImage,[xcrop ycrop width-2*xcrop height-2*ycrop]);
 
 % figure, imshow(RawImage);% Will show you your image, and contains data we will analyze, You can technically comment this out, or else you will have redundant image
 
@@ -78,7 +94,7 @@ back_to_original_img = cat(3, red, green, blue); %Back to your original image su
 % figure, imshow(back_to_original_img), title('Back to original image')
 %%
 
-% This line is for something I doing, don't worry about it % imwrite(RawImage, 'test.tif'); % C = imfinfo('test.tif');
+
 
 
 %Preparing image analysis and output
@@ -86,14 +102,15 @@ back_to_original_img = cat(3, red, green, blue); %Back to your original image su
 L = bwlabel(red); %labels connected components in a 2D array/
 s = regionprops(L, 'PixelIdxList', 'PixelList', 'Area', 'Centroid', 'FilledArea'); %measures properties of image (i.e. property definitions) should not need to change
 
-f=figure('visible','off'); 
+f1=figure('visible','off'); 
 imshow(RawImage); %Produces an image 
 [centersBright, radiiBright] = imfindcircles(just_red,[SRadius LRadius],'ObjectPolarity','bright','Sensitivity',SensitivityFactor);%Algorithm that identifies the circles
+%pause(1);
 viscircles(centersBright, radiiBright,'EdgeColor','r') %places circles around your objects, should help visualize the specific beads or droplets identified
 
-set(f,'visible','on');
+set(f1,'visible','on');
 savefig(append(CircleCheckFolder,'/',stripFileExtention,'CircleCheck.fig'))
-close(f)
+close(f1)
 
 %%
 %If using the Celestron microscope images make sure to put in the
@@ -120,8 +137,10 @@ close(f)
 % 1100um per 940pixels = 1.16 multiplier
 % 1100um per 570pixels = ___ multiplier
 
-DiaBrightAdj = radiiBright*(250/230)*2; %Gives you diameter of the beads/droplets... NEED TO MAKE SURE CORRECT MULTIPLIER IS USED  
-f=figure('visible','off');histogram(DiaBrightAdj); %Gives you a histogram of the data
+DiaBrightAdj = radiiBright*(2000/(height-60))*2; %Gives you diameter of the beads/droplets... NEED TO MAKE SURE CORRECT MULTIPLIER IS USED  
+
+edges = linspace(0,150,151);%creates the bins from 0um to 150um of size 1um
+f2=figure('visible','off');histogram(DiaBrightAdj,'BinEdges',edges); % if want auto bins replace w/ figure,histogram(\\DiaBirghtAdj)
 
 title('Droplet size distribution','FontSize', 14) % title of your plot
 xlabel('Diameter (um)', 'FontSize', 14) % x-axis label of your plot
@@ -133,27 +152,34 @@ DiaSTD = std(DiaBrightAdj);      %Data that may be useful to have presen
 %%visualize output, if you want to eliminate comment out
 %A =[countDia; DiaMean; DiaSTD];
 
-A(1,c-2) = countDia;
+
+
+
+Counts = [Counts; countDia];%keeps track of #s of beads
+
+A(1,c-2) = countDia;% sets an array w the count, mean, and std
 A(2,c-2) = DiaMean;
 A(3,c-2) = DiaSTD;
 
-%MinuteCount(c-2,1) = str2num(FolderInfo(c).name(10:end-8));
-%MinuteCount(c-2,2) = str2num(FolderInfo(c).name(12:end-6));
+grid on;%adds grid lines to histogram
+xticks(0:10:150)%makes the x axis tick marks every 10um
+
 
 DataInfo= {'Samples Counted: %.3f';...
            'Mean Diameter: %.3f';...
            'St.Dev: %.3f'};
 str = compose(DataInfo, A(1:3,c-2));
 dim = [0.55 0.6 0.3 0.3];
-annotation('textbox',dim,'String',str,'FitBoxToText','on');
+annotation('textbox',dim,'String',str,'FitBoxToText','on');%formats and displays count,mean,std in box
 
 
 
-set(f,'visible','on');
-savefig(append(HistogramFolder,'/',stripFileExtention,'histogram.fig'))
-close(f)
+set(f2,'visible','on');
+savefig(append(HistogramFolder,'/',stripFileExtention,'histogram.fig'))%saves the histogram to the individualhistogram folder
+close(f2)
 
-writematrix(DiaBrightAdj,append(RawDataFolder,'/',stripFileExtention,'RawData'))
+
+writematrix(DiaBrightAdj,append(RawDataFolder,'/',stripFileExtention,'RawData'))%writes the raw data to the raw data folder
 
 end
 %%
@@ -179,15 +205,55 @@ end
 
 
 
-DataInfo = dir(RawDataFolder);
-M = [];
+DataInfo = dir(RawDataFolder);%gets all the names of the raw data files
+M = [];%matrix of all raw data in list
+length(Counts)
+disp(max(Counts))
+TotDataCols =zeros(max(Counts),length(Counts));
 for d = 3:length(DataInfo)
+    TotDataCols(1:Counts(d-2),d-2) = readmatrix(append(RawDataFolder,'/',DataInfo(d).name));
     M = [M; readmatrix(append(RawDataFolder,'/',DataInfo(d).name))];
 
 end
 
-writematrix(M,append(ImgsToAnalyze,'AllRawData'));
-figure,histogram(M)
+writematrix(M,append(ImgsToAnalyze,'_AllRawDataList'));
+writematrix(TotDataCols,append(ImgsToAnalyze,'AllRawDataColSeperated'))
+
+edges = linspace(0,150,151);%creates the bins from 0 to 150 of size 1
+figure,histogram(M,'BinEdges',edges)% if want auto bins replace w/ figure,histogram(M)
+
+title('Droplet size distribution','FontSize', 14) % title of your plot
+xlabel('Diameter (um)', 'FontSize', 14) % x-axis label of your plot
+ylabel('Number of beads', 'FontSize', 14) % y-axis label of your plot
+
+countDia = size(M,1); %Data that may be useful to have present
+DiaMean = mean(M);    %Data that may be useful to have present
+DiaSTD = std(M);     %Data that may be useful to have present
+
+grid on;
+xticks(0:10:150)
+
+A(1,c-2) = countDia;
+A(2,c-2) = DiaMean;
+A(3,c-2) = DiaSTD;
+
+DataInfo= {'Samples Counted: %.0f';...
+           'Mean Diameter: %.3f';...
+           'St.Dev: %.3f'};
+str = compose(DataInfo, A(1:3,c-2));
+dim = [0.55 0.6 0.3 0.3];
+annotation('textbox',dim,'String',str,'FitBoxToText','on');
+
+savefig(append(ImgsToAnalyze,'_Histogram.fig'))
+
+
+
+
+
+
+
+
+
 
 %% Just starting point for myself
 % fwrite(radiiBright)%
